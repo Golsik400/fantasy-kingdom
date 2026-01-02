@@ -1,39 +1,33 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
   <title>Fantasy Kingdom</title>
 </head>
 <body>
-  <div id="game" style="display:none;">
+
+<button onclick="login()">Zaloguj się</button>
+
+<div id="game" style="display:none;">
   <h2 id="playerName"></h2>
 
-  <p>🌲 Drewno: <span id="wood">0</span></p>
-  <p>🪨 Kamień: <span id="stone">0</span></p>
-  <p>⚙️ Żelazo: <span id="iron">0</span></p>
-  <p>🥈 Srebro: <span id="silver">0</span></p>
-
-  <hr>
-
-  <p>💎 Złoto (premium): <span id="gold">0</span></p>
+  🌲 Drewno: <span id="wood">0</span><br>
+  🪨 Kamień: <span id="stone">0</span><br>
+  ⛓️ Żelazo: <span id="iron">0</span><br>
+  🪙 Srebro: <span id="silver">0</span><br>
+  💎 Złoto: <span id="gold">0</span>
 </div>
-
-  <button onclick="login()">Zaloguj się (Google)</button>
-  <h1>🏰 Fantasy Kingdom</h1>
-  <p>Start gry działa 🎉</p>
-  <!-- reszta strony -->
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
   import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+  import { getDatabase, ref, set, get, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
     authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
     databaseURL: "https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
-    projectId: "fantasy-kingdom-70acd",
+    projectId: "fantasy-kingdom-70acd"
   };
 
   const app = initializeApp(firebaseConfig);
@@ -42,58 +36,70 @@
   const provider = new GoogleAuthProvider();
 
   window.login = async () => {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
+    await signInWithPopup(auth, provider);
+  };
+
+  async function runProduction(user) {
+    const playerRef = ref(db, "players/" + user.uid);
+    const snap = await get(playerRef);
+    const data = snap.val();
+
+    const now = Date.now();
+    const last = data.lastProduction || now;
+    const minutes = Math.floor((now - last) / 60000);
+
+    if (minutes > 0) {
+      await update(playerRef, {
+        lastProduction: now,
+        "resources/wood": data.resources.wood + minutes * 1,
+        "resources/stone": data.resources.stone + minutes * 1,
+        "resources/iron": data.resources.iron + minutes * 1,
+        "resources/silver": data.resources.silver + minutes * 1
+      });
+    }
+  }
+
+  onAuthStateChanged(auth, async (user) => {
+    if (!user) return;
 
     const playerRef = ref(db, "players/" + user.uid);
-    const snapshot = await get(playerRef);
+    const snap = await get(playerRef);
 
-    if (!snapshot.exists()) {
+    if (!snap.exists()) {
       await set(playerRef, {
-  name: user.displayName,
-
-  resources: {
-    wood: 100,
-    stone: 80,
-    iron: 40,
-    silver: 20,
-  },
-
-  premium: {
-    gold: 10
-  },
-
-  created: Date.now()
-});
-
-
+        name: user.displayName,
+        created: Date.now(),
+        lastProduction: Date.now(),
+        resources: {
+          wood: 0,
+          stone: 0,
+          iron: 0,
+          silver: 0,
+          gold: 0
+        }
+      });
     }
 
-    alert("Zalogowano jako " + user.displayName);
-  };
-  onAuthStateChanged(auth, async (user) => {
-  if (!user) return;
+    await runProduction(user);
 
-  const snapshot = await get(ref(db, "players/" + user.uid));
-  const data = snapshot.val();
+    const updatedSnap = await get(playerRef);
+    const data = updatedSnap.val();
 
-  if (!data) return;
+    // 🔥 TU BYŁ PROBLEM – teraz NA PEWNO zadziała
+    document.getElementById("game").style.display = "block";
+    document.getElementById("playerName").innerText = "Witaj, " + data.name;
 
-  // surowce
-  document.getElementById("wood").textContent = data.resources.wood;
-  document.getElementById("stone").textContent = data.resources.stone;
-  document.getElementById("iron").textContent = data.resources.iron;
-  document.getElementById("silver").textContent = data.resources.silver;
-
-  // waluta premium
-  document.getElementById("gold").textContent = data.premium.gold;
-});
-
-
+    document.getElementById("wood").innerText = data.resources.wood;
+    document.getElementById("stone").innerText = data.resources.stone;
+    document.getElementById("iron").innerText = data.resources.iron;
+    document.getElementById("silver").innerText = data.resources.silver;
+    document.getElementById("gold").innerText = data.resources.gold;
+  });
 </script>
 
 </body>
 </html>
+
 
 
 

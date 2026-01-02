@@ -37,11 +37,22 @@
 
     if (!snapshot.exists()) {
       await set(playerRef, {
-        name: user.displayName,
-        gold: 100,
-        wood: 50,
-        created: Date.now()
-      });
+  name: user.displayName,
+
+  resources: {
+    wood: 100,
+    stone: 100,
+    iron: 50,
+    silver: 30
+  },
+
+  premium: {
+    gold: 10
+  },
+
+  created: Date.now()
+});
+
     }
 
     alert("Zalogowano jako " + user.displayName);
@@ -57,5 +68,6 @@
 
 </body>
 </html>
+
 
 

@@ -12,29 +12,29 @@
   <h2 id="playerName"></h2>
 
   <h3>📦 Surowce</h3>
-  🌲 Drewno: <span id="wood">0</span><br>
-  🪨 Kamień: <span id="stone">0</span><br>
+  🌲 Drewno: <span id="wood">0</span> / <span id="woodCap">0</span><br>
+  🪨 Kamień: <span id="stone">0</span> / <span id="stoneCap">0</span><br>
   💎 Złoto: <span id="gold">0</span>
 
-  <h3>🏗️ Budynki</h3>
+  <h3>🏗️ Budynki produkcyjne</h3>
 
   <b>Tartak</b><br>
   Poziom: <span id="sawmillLevel">1</span><br>
-  Produkcja: +<span id="sawmillProd">1</span> / min<br>
-  Koszt: <span id="sawmillCost">50</span> 🌲<br>
-  Czas: <span id="sawmillTime">1</span> min<br>
-  <button onclick="upgrade('sawmill')">Ulepsz</button>
-  <button onclick="speedUp('sawmill')">⚡ Przyspiesz (1 💎)</button>
+  Produkcja: +<span id="sawmillProd">1</span>/min<br>
+  <button onclick="upgrade('sawmill')">Ulepsz (🌲)</button>
 
   <br><br>
 
   <b>Kamieniołom</b><br>
   Poziom: <span id="quarryLevel">1</span><br>
-  Produkcja: +<span id="quarryProd">1</span> / min<br>
-  Koszt: <span id="quarryCost">50</span> 🪨<br>
-  Czas: <span id="quarryTime">1</span> min<br>
-  <button onclick="upgrade('quarry')">Ulepsz</button>
-  <button onclick="speedUp('quarry')">⚡ Przyspiesz (1 💎)</button>
+  Produkcja: +<span id="quarryProd">1</span>/min<br>
+  <button onclick="upgrade('quarry')">Ulepsz (🪨)</button>
+
+  <h3>📦 Magazyn</h3>
+  Poziom: <span id="storageLevel">1</span><br>
+  Pojemność: <span id="storageCap">500</span><br>
+  Koszt ulepszenia: <span id="storageCost">100</span> 🌲 + <span id="storageCostStone">100</span> 🪨<br>
+  <button onclick="upgrade('storage')">Ulepsz magazyn</button>
 </div>
 
 <script type="module">
@@ -54,41 +54,30 @@ const auth = getAuth(app);
 const db = getDatabase(app);
 const provider = new GoogleAuthProvider();
 
-/* 🔗 ELEMENTY HTML */
-const game = document.getElementById("game");
-const playerName = document.getElementById("playerName");
-const wood = document.getElementById("wood");
-const stone = document.getElementById("stone");
-const gold = document.getElementById("gold");
+const $ = id => document.getElementById(id);
 
-const sawmillLevel = document.getElementById("sawmillLevel");
-const quarryLevel = document.getElementById("quarryLevel");
-const sawmillProd = document.getElementById("sawmillProd");
-const quarryProd = document.getElementById("quarryProd");
-const sawmillCost = document.getElementById("sawmillCost");
-const quarryCost = document.getElementById("quarryCost");
-const sawmillTime = document.getElementById("sawmillTime");
-const quarryTime = document.getElementById("quarryTime");
+$("loginBtn").onclick = () => signInWithPopup(auth, provider);
 
-/* 🔐 LOGOWANIE */
-document.getElementById("loginBtn").onclick = async () => {
-  await signInWithPopup(auth, provider);
-};
+/* 🔢 MAGAZYN */
+const storageCap = lvl => lvl * 500;
 
 /* ⚙️ PRODUKCJA */
 async function runProduction(user) {
   const refP = ref(db, "players/" + user.uid);
   const d = (await get(refP)).val();
 
-  const now = Date.now();
-  const last = d.lastProduction;
-  const minutes = Math.floor((now - last) / 60000);
+  const minutes = Math.floor((Date.now() - d.lastProduction) / 60000);
   if (minutes <= 0) return;
 
+  const cap = storageCap(d.buildings.storage.level);
+
+  const woodGain = d.buildings.sawmill.level * minutes;
+  const stoneGain = d.buildings.quarry.level * minutes;
+
   await update(refP, {
-    lastProduction: last + minutes * 60000,
-    "resources/wood": d.resources.wood + d.buildings.sawmill.level * minutes,
-    "resources/stone": d.resources.stone + d.buildings.quarry.level * minutes
+    lastProduction: d.lastProduction + minutes * 60000,
+    "resources/wood": Math.min(cap, d.resources.wood + woodGain),
+    "resources/stone": Math.min(cap, d.resources.stone + stoneGain)
   });
 }
 
@@ -98,25 +87,40 @@ window.upgrade = async (type) => {
   const refP = ref(db, "players/" + user.uid);
   const d = (await get(refP)).val();
 
-  const level = d.buildings[type].level;
-  const cost = level * 50;
-  const time = level * 60000;
-  const res = type === "sawmill" ? "wood" : "stone";
+  if (type === "storage") {
+    const lvl = d.buildings.storage.level;
+    const cost = lvl * 100;
 
-  if (d.resources[res] < cost) {
-    alert("Za mało surowców");
-    return;
+    if (d.resources.wood < cost || d.resources.stone < cost) {
+      alert("Za mało surowców");
+      return;
+    }
+
+    await update(refP, {
+      "resources/wood": d.resources.wood - cost,
+      "resources/stone": d.resources.stone - cost,
+      "buildings/storage/level": lvl + 1
+    });
+  } else {
+    const lvl = d.buildings[type].level;
+    const res = type === "sawmill" ? "wood" : "stone";
+    const cost = lvl * 50;
+
+    if (d.resources[res] < cost) {
+      alert("Za mało surowców");
+      return;
+    }
+
+    await update(refP, {
+      [`resources/${res}`]: d.resources[res] - cost,
+      [`buildings/${type}/level`]: lvl + 1
+    });
   }
-
-  await update(refP, {
-    [`resources/${res}`]: d.resources[res] - cost,
-    [`buildings/${type}/level`]: level + 1
-  });
 
   location.reload();
 };
 
-/* 👤 PO ZALOGOWANIU */
+/* 👤 START */
 onAuthStateChanged(auth, async (user) => {
   if (!user) return;
 
@@ -130,7 +134,8 @@ onAuthStateChanged(auth, async (user) => {
       resources: { wood: 100, stone: 100, gold: 5 },
       buildings: {
         sawmill: { level: 1 },
-        quarry: { level: 1 }
+        quarry: { level: 1 },
+        storage: { level: 1 }
       }
     });
   }
@@ -138,26 +143,33 @@ onAuthStateChanged(auth, async (user) => {
   await runProduction(user);
   const d = (await get(refP)).val();
 
-  game.style.display = "block";
-  playerName.innerText = "Witaj, " + d.name;
+  $("game").style.display = "block";
+  $("playerName").innerText = "Witaj, " + d.name;
 
-  wood.innerText = d.resources.wood;
-  stone.innerText = d.resources.stone;
-  gold.innerText = d.resources.gold;
+  $("wood").innerText = d.resources.wood;
+  $("stone").innerText = d.resources.stone;
+  $("gold").innerText = d.resources.gold;
 
-  sawmillLevel.innerText = d.buildings.sawmill.level;
-  quarryLevel.innerText = d.buildings.quarry.level;
-  sawmillProd.innerText = d.buildings.sawmill.level;
-  quarryProd.innerText = d.buildings.quarry.level;
-  sawmillCost.innerText = d.buildings.sawmill.level * 50;
-  quarryCost.innerText = d.buildings.quarry.level * 50;
-  sawmillTime.innerText = d.buildings.sawmill.level;
-  quarryTime.innerText = d.buildings.quarry.level;
+  $("woodCap").innerText = storageCap(d.buildings.storage.level);
+  $("stoneCap").innerText = storageCap(d.buildings.storage.level);
+
+  $("sawmillLevel").innerText = d.buildings.sawmill.level;
+  $("quarryLevel").innerText = d.buildings.quarry.level;
+  $("storageLevel").innerText = d.buildings.storage.level;
+
+  $("sawmillProd").innerText = d.buildings.sawmill.level;
+  $("quarryProd").innerText = d.buildings.quarry.level;
+
+  $("storageCap").innerText = storageCap(d.buildings.storage.level);
+  $("storageCost").innerText = d.buildings.storage.level * 100;
+  $("storageCostStone").innerText = d.buildings.storage.level * 100;
 });
 </script>
 
 </body>
 </html>
+
+
 
 
 

@@ -93,12 +93,14 @@
     document.getElementById("stone").innerText = data.resources.stone;
     document.getElementById("iron").innerText = data.resources.iron;
     document.getElementById("silver").innerText = data.resources.silver;
-    document.getElementById("gold").innerText = data.resources.gold;
+    document.getElementById("gold").innerText = data.resources.gold ?? 0;
+
   });
 </script>
 
 </body>
 </html>
+
 
 
 

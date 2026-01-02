@@ -70,17 +70,28 @@
 
     alert("Zalogowano jako " + user.displayName);
   };
+onAuthStateChanged(auth, async (user) => {
+  if (user) {
+    const snapshot = await get(ref(db, "players/" + user.uid));
+    const data = snapshot.val();
 
-  onAuthStateChanged(auth, async (user) => {
-    if (user) {
-      const snapshot = await get(ref(db, "players/" + user.uid));
-      console.log("Dane gracza:", snapshot.val());
-    }
-  });
+    document.getElementById("game").style.display = "block";
+    document.getElementById("playerName").innerText = "Witaj, " + data.name;
+
+    document.getElementById("wood").innerText = data.resources.wood;
+    document.getElementById("stone").innerText = data.resources.stone;
+    document.getElementById("iron").innerText = data.resources.iron;
+    document.getElementById("silver").innerText = data.resources.silver;
+
+    document.getElementById("gold").innerText = data.premium.gold;
+  }
+});
+
 </script>
 
 </body>
 </html>
+
 
 
 

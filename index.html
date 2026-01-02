@@ -12,9 +12,50 @@
   <!-- reszta strony -->
 
 <script type="module">
-  ...firebase code...
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+  import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
+    authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
+    databaseURL: "https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
+    projectId: "fantasy-kingdom-70acd",
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getDatabase(app);
+  const provider = new GoogleAuthProvider();
+
+  window.login = async () => {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    const playerRef = ref(db, "players/" + user.uid);
+    const snapshot = await get(playerRef);
+
+    if (!snapshot.exists()) {
+      await set(playerRef, {
+        name: user.displayName,
+        gold: 100,
+        wood: 50,
+        created: Date.now()
+      });
+    }
+
+    alert("Zalogowano jako " + user.displayName);
+  };
+
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      const snapshot = await get(ref(db, "players/" + user.uid));
+      console.log("Dane gracza:", snapshot.val());
+    }
+  });
 </script>
 
 </body>
 </html>
+
 

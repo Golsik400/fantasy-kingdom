@@ -23,6 +23,7 @@
   import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
   import { getDatabase, ref, set, get, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
+  // 🔥 KONFIGURACJA FIREBASE
   const firebaseConfig = {
     apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
     authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
@@ -35,36 +36,45 @@
   const db = getDatabase(app);
   const provider = new GoogleAuthProvider();
 
+  // 🔐 LOGOWANIE
   window.login = async () => {
     await signInWithPopup(auth, provider);
   };
 
+  // ⚙️ PRODUKCJA CO MINUTĘ (OFFLINE)
   async function runProduction(user) {
     const playerRef = ref(db, "players/" + user.uid);
     const snap = await get(playerRef);
     const data = snap.val();
 
+    if (!data || !data.resources) return;
+
     const now = Date.now();
-    const last = data.lastProduction || now;
+    const last = data.lastProduction ?? now;
     const minutes = Math.floor((now - last) / 60000);
 
-    if (minutes > 0) {
-      await update(playerRef, {
-        lastProduction: now,
-        "resources/wood": data.resources.wood + minutes * 1,
-        "resources/stone": data.resources.stone + minutes * 1,
-        "resources/iron": data.resources.iron + minutes * 1,
-        "resources/silver": data.resources.silver + minutes * 1
-      });
-    }
+    if (minutes <= 0) return;
+
+    const r = data.resources;
+
+    await update(playerRef, {
+      lastProduction: last + minutes * 60000,
+      "resources/wood": r.wood + minutes,
+      "resources/stone": r.stone + minutes,
+      "resources/iron": r.iron + minutes,
+      "resources/silver": r.silver + minutes,
+      "resources/gold": r.gold ?? 0
+    });
   }
 
+  // 👤 PO ZALOGOWANIU
   onAuthStateChanged(auth, async (user) => {
     if (!user) return;
 
     const playerRef = ref(db, "players/" + user.uid);
     const snap = await get(playerRef);
 
+    // 🆕 NOWY GRACZ
     if (!snap.exists()) {
       await set(playerRef, {
         name: user.displayName,
@@ -80,12 +90,14 @@
       });
     }
 
+    // ⚙️ NALICZ PRODUKCJĘ
     await runProduction(user);
 
+    // 🔄 ODCZYT DANYCH
     const updatedSnap = await get(playerRef);
     const data = updatedSnap.val();
 
-    // 🔥 TU BYŁ PROBLEM – teraz NA PEWNO zadziała
+    // 🖥️ UI
     document.getElementById("game").style.display = "block";
     document.getElementById("playerName").innerText = "Witaj, " + data.name;
 
@@ -94,12 +106,13 @@
     document.getElementById("iron").innerText = data.resources.iron;
     document.getElementById("silver").innerText = data.resources.silver;
     document.getElementById("gold").innerText = data.resources.gold ?? 0;
-
   });
 </script>
 
 </body>
 </html>
+
+
 
 
 

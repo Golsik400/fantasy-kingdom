@@ -71,27 +71,30 @@
 
     alert("Zalogowano jako " + user.displayName);
   };
-onAuthStateChanged(auth, async (user) => {
-  if (user) {
-    const snapshot = await get(ref(db, "players/" + user.uid));
-    const data = snapshot.val();
+  onAuthStateChanged(auth, async (user) => {
+  if (!user) return;
 
-    document.getElementById("game").style.display = "block";
-    document.getElementById("playerName").innerText = "Witaj, " + data.name;
+  const snapshot = await get(ref(db, "players/" + user.uid));
+  const data = snapshot.val();
 
-    document.getElementById("wood").innerText = data.resources.wood;
-    document.getElementById("stone").innerText = data.resources.stone;
-    document.getElementById("iron").innerText = data.resources.iron;
-    document.getElementById("silver").innerText = data.resources.silver;
+  if (!data) return;
 
-    document.getElementById("gold").innerText = data.premium.gold;
-  }
+  // surowce
+  document.getElementById("wood").textContent = data.resources.wood;
+  document.getElementById("stone").textContent = data.resources.stone;
+  document.getElementById("iron").textContent = data.resources.iron;
+  document.getElementById("silver").textContent = data.resources.silver;
+
+  // waluta premium
+  document.getElementById("gold").textContent = data.premium.gold;
 });
+
 
 </script>
 
 </body>
 </html>
+
 
 
 

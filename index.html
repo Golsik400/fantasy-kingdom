@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-  <meta charset="UTF-8">
-  <title>Fantasy Kingdom</title>
+<meta charset="UTF-8">
+<title>Fantasy Kingdom</title>
 </head>
 <body>
 
@@ -11,106 +11,140 @@
 <div id="game" style="display:none;">
   <h2 id="playerName"></h2>
 
+  <h3>📦 Surowce</h3>
   🌲 Drewno: <span id="wood">0</span><br>
   🪨 Kamień: <span id="stone">0</span><br>
   ⛓️ Żelazo: <span id="iron">0</span><br>
   🪙 Srebro: <span id="silver">0</span><br>
   💎 Złoto: <span id="gold">0</span>
+
+  <h3>🏗️ Budynki</h3>
+
+  <b>Tartak</b><br>
+  Poziom: <span id="sawmillLevel">1</span><br>
+  Produkcja: +<span id="sawmillProd">1</span> 🌲 / min<br>
+  Koszt: <span id="sawmillCost">50</span> 🌲<br>
+  <button onclick="upgrade('sawmill')">Ulepsz</button>
+
+  <br><br>
+
+  <b>Kamieniołom</b><br>
+  Poziom: <span id="quarryLevel">1</span><br>
+  Produkcja: +<span id="quarryProd">1</span> 🪨 / min<br>
+  Koszt: <span id="quarryCost">50</span> 🪨<br>
+  <button onclick="upgrade('quarry')">Ulepsz</button>
+
 </div>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-  import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-  import { getDatabase, ref, set, get, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, get, set, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-  // 🔥 KONFIGURACJA FIREBASE
-  const firebaseConfig = {
-    apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
-    authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
-    databaseURL: "https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
-    projectId: "fantasy-kingdom-70acd"
-  };
+const firebaseConfig = {
+  apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
+  authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
+  databaseURL: "https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
+  projectId: "fantasy-kingdom-70acd"
+};
 
-  const app = initializeApp(firebaseConfig);
-  const auth = getAuth(app);
-  const db = getDatabase(app);
-  const provider = new GoogleAuthProvider();
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+const provider = new GoogleAuthProvider();
 
-  // 🔐 LOGOWANIE
-  window.login = async () => {
-    await signInWithPopup(auth, provider);
-  };
+window.login = async () => {
+  await signInWithPopup(auth, provider);
+};
 
-  // ⚙️ PRODUKCJA CO MINUTĘ (OFFLINE)
-  async function runProduction(user) {
-    const playerRef = ref(db, "players/" + user.uid);
-    const snap = await get(playerRef);
-    const data = snap.val();
+// ⚙️ PRODUKCJA OFFLINE
+async function runProduction(user) {
+  const refP = ref(db, "players/" + user.uid);
+  const snap = await get(refP);
+  const d = snap.val();
 
-    if (!data || !data.resources) return;
+  const now = Date.now();
+  const last = d.lastProduction ?? now;
+  const minutes = Math.floor((now - last) / 60000);
+  if (minutes <= 0) return;
 
-    const now = Date.now();
-    const last = data.lastProduction ?? now;
-    const minutes = Math.floor((now - last) / 60000);
+  await update(refP, {
+    lastProduction: last + minutes * 60000,
+    "resources/wood": d.resources.wood + d.buildings.sawmill.level * minutes,
+    "resources/stone": d.resources.stone + d.buildings.quarry.level * minutes
+  });
+}
 
-    if (minutes <= 0) return;
+// 🏗️ ULEPSZANIE BUDYNKU
+window.upgrade = async (type) => {
+  const user = auth.currentUser;
+  if (!user) return;
 
-    const r = data.resources;
+  const refP = ref(db, "players/" + user.uid);
+  const snap = await get(refP);
+  const d = snap.val();
 
-    await update(playerRef, {
-      lastProduction: last + minutes * 60000,
-      "resources/wood": r.wood + minutes,
-      "resources/stone": r.stone + minutes,
-      "resources/iron": r.iron + minutes,
-      "resources/silver": r.silver + minutes,
-      "resources/gold": r.gold ?? 0
+  const level = d.buildings[type].level;
+  const cost = level * 50;
+
+  const resType = type === "sawmill" ? "wood" : "stone";
+  if (d.resources[resType] < cost) {
+    alert("Za mało surowców!");
+    return;
+  }
+
+  await update(refP, {
+    [`resources/${resType}`]: d.resources[resType] - cost,
+    [`buildings/${type}/level`]: level + 1
+  });
+
+  location.reload();
+};
+
+// 👤 LOGOWANIE
+onAuthStateChanged(auth, async (user) => {
+  if (!user) return;
+
+  const refP = ref(db, "players/" + user.uid);
+  const snap = await get(refP);
+
+  if (!snap.exists()) {
+    await set(refP, {
+      name: user.displayName,
+      lastProduction: Date.now(),
+      resources: {
+        wood: 100,
+        stone: 100,
+        iron: 0,
+        silver: 0,
+        gold: 0
+      },
+      buildings: {
+        sawmill: { level: 1 },
+        quarry: { level: 1 }
+      }
     });
   }
 
-  // 👤 PO ZALOGOWANIU
-  onAuthStateChanged(auth, async (user) => {
-    if (!user) return;
+  await runProduction(user);
+  const d = (await get(refP)).val();
 
-    const playerRef = ref(db, "players/" + user.uid);
-    const snap = await get(playerRef);
+  document.getElementById("game").style.display = "block";
+  document.getElementById("playerName").innerText = "Witaj, " + d.name;
 
-    // 🆕 NOWY GRACZ
-    if (!snap.exists()) {
-      await set(playerRef, {
-        name: user.displayName,
-        created: Date.now(),
-        lastProduction: Date.now(),
-        resources: {
-          wood: 0,
-          stone: 0,
-          iron: 0,
-          silver: 0,
-          gold: 0
-        }
-      });
-    }
+  wood.innerText = d.resources.wood;
+  stone.innerText = d.resources.stone;
+  iron.innerText = d.resources.iron;
+  silver.innerText = d.resources.silver;
+  gold.innerText = d.resources.gold;
 
-    // ⚙️ NALICZ PRODUKCJĘ
-    await runProduction(user);
+  sawmillLevel.innerText = d.buildings.sawmill.level;
+  quarryLevel.innerText = d.buildings.quarry.level;
 
-    // 🔄 ODCZYT DANYCH
-    const updatedSnap = await get(playerRef);
-    const data = updatedSnap.val();
+  sawmillProd.innerText = d.buildings.sawmill.level;
+  quarryProd.inn
 
-    // 🖥️ UI
-    document.getElementById("game").style.display = "block";
-    document.getElementById("playerName").innerText = "Witaj, " + data.name;
 
-    document.getElementById("wood").innerText = data.resources.wood;
-    document.getElementById("stone").innerText = data.resources.stone;
-    document.getElementById("iron").innerText = data.resources.iron;
-    document.getElementById("silver").innerText = data.resources.silver;
-    document.getElementById("gold").innerText = data.resources.gold ?? 0;
-  });
-</script>
-
-</body>
-</html>
 
 
 

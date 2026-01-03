@@ -2,11 +2,15 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fantasy Kingdom MMO</title>
+
 <style>
-body { font-family: Arial; background:#111; color:#eee }
-button { margin:5px }
-.card { border:1px solid #444; padding:10px; margin:10px }
+body{font-family:Arial;background:#111;color:#eee}
+.card{border:1px solid #444;padding:10px;margin:10px}
+input,button,select{margin:3px}
+#chat{height:150px;overflow:auto;background:#000;padding:5px}
+.msg{font-size:13px}
 </style>
 </head>
 <body>
@@ -16,7 +20,7 @@ button { margin:5px }
 <div id="game" style="display:none">
 
 <h2 id="name"></h2>
-<div id="shield"></div>
+<div id="event"></div>
 
 <div class="card">
 <h3>📦 Surowce</h3>
@@ -26,30 +30,19 @@ button { margin:5px }
 </div>
 
 <div class="card">
-<h3>⚔️ Armia</h3>
-<div id="army"></div>
+<h3>💬 Czat globalny</h3>
+<div id="chat"></div>
+<input id="chatInput" placeholder="Napisz..." />
+<button onclick="sendMsg()">Wyślij</button>
 </div>
 
 <div class="card">
-<h3>🗺️ Mapa</h3>
-Pozycja: <span id="pos"></span>
-</div>
-
-<div class="card">
-<h3>⚔️ PvP</h3>
-<select id="targets"></select>
-<button onclick="attack()">Atakuj</button>
-<div id="log"></div>
-</div>
-
-<div class="card">
-<h3>🏆 Ranking</h3>
-<ol id="ranking"></ol>
-</div>
-
-<div class="card">
-<h3>💎 Sklep premium</h3>
-<button onclick="boost()">Przyspiesz produkcję (1💎)</button>
+<h3>🏰 Klan</h3>
+<div id="clanInfo">Brak klanu</div>
+<input id="clanName" placeholder="Nazwa klanu">
+<button onclick="createClan()">Utwórz</button>
+<select id="clanList"></select>
+<button onclick="joinClan()">Dołącz</button>
 </div>
 
 </div>
@@ -57,113 +50,111 @@ Pozycja: <span id="pos"></span>
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, set, get, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, get, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const app = initializeApp({
- apiKey:"AIzaSy...",
+ apiKey:"AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
  authDomain:"fantasy-kingdom-70acd.firebaseapp.com",
  databaseURL:"https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
  projectId:"fantasy-kingdom-70acd"
 });
 
-const auth = getAuth(app);
-const db = getDatabase(app);
-const provider = new GoogleAuthProvider();
-const $ = i=>document.getElementById(i);
+const auth=getAuth(app);
+const db=getDatabase(app);
+const provider=new GoogleAuthProvider();
+const $=i=>document.getElementById(i);
 
 $("login").onclick=()=>signInWithPopup(auth,provider);
 
-const unitPower=(tier)=>Math.pow(1.3,tier);
-
-function armyPower(a){
- let p=0;
- for(let k in a) p+=a[k].count*unitPower(a[k].tier);
- return p;
-}
-
-window.attack=async()=>{
- const t=$("targets").value;
- const u=auth.currentUser.uid;
- if(!t||t===u)return;
-
- const A=(await get(ref(db,"players/"+u))).val();
- const D=(await get(ref(db,"players/"+t))).val();
-
- if(Date.now()<D.shield)return alert("Gracz chroniony");
-
- const pA=armyPower(A.army);
- const pD=armyPower(D.army);
-
- if(pA>pD){
-  await update(ref(db,"players/"+u+"/resources"),{
-   wood:A.resources.wood+50,
-   stone:A.resources.stone+50
-  });
-  $("log").innerText="Zwycięstwo!";
- }else{
-  $("log").innerText="Porażka!";
- }
-};
-
-window.boost=async()=>{
- const u=auth.currentUser.uid;
- const r=ref(db,"players/"+u);
- const d=(await get(r)).val();
- if(d.resources.gold<1)return;
- await update(r,{
-  "resources/gold":d.resources.gold-1,
-  boost:Date.now()+600000
+/* 💬 CHAT */
+window.sendMsg=async()=>{
+ const txt=$("chatInput").value;
+ if(!txt)return;
+ await push(ref(db,"chat"),{
+  name:auth.currentUser.displayName,
+  text:txt,
+  time:Date.now()
  });
+ $("chatInput").value="";
 };
 
+/* 🏰 KLAN */
+window.createClan=async()=>{
+ const name=$("clanName").value;
+ if(!name)return;
+ const cRef=ref(db,"clans/"+name);
+ const snap=await get(cRef);
+ if(snap.exists())return alert("Klan istnieje");
+ await set(cRef,{
+  leader:auth.currentUser.uid,
+  members:{[auth.currentUser.uid]:auth.currentUser.displayName}
+ });
+ await update(ref(db,"players/"+auth.currentUser.uid),{clan:name});
+};
+
+window.joinClan=async()=>{
+ const name=$("clanList").value;
+ const cRef=ref(db,"clans/"+name);
+ const c=(await get(cRef)).val();
+ if(Object.keys(c.members).length>=100)return alert("Klan pełny");
+ await update(cRef.child("members"),{
+  [auth.currentUser.uid]:auth.currentUser.displayName
+ });
+ await update(ref(db,"players/"+auth.currentUser.uid),{clan:name});
+};
+
+/* 🎉 EVENT */
+const eventActive=true;
+const eventBonus=2;
+
+/* START */
 onAuthStateChanged(auth,async u=>{
  if(!u)return;
- const r=ref(db,"players/"+u.uid);
- if(!(await get(r)).exists()){
-  await set(r,{
+ const pRef=ref(db,"players/"+u.uid);
+ if(!(await get(pRef)).exists()){
+  await set(pRef,{
    name:u.displayName,
-   created:Date.now(),
-   shield:Date.now()+86400000,
-   pos:{x:Math.floor(Math.random()*100),y:Math.floor(Math.random()*100)},
    resources:{wood:300,stone:200,gold:5},
-   army:{
-    assassin:{count:10,tier:1},
-    tank:{count:5,tier:1}
-   }
+   clan:null
   });
  }
- const d=(await get(r)).val();
+
+ const d=(await get(pRef)).val();
  $("game").style.display="block";
  $("name").innerText=d.name;
  $("wood").innerText=d.resources.wood;
  $("stone").innerText=d.resources.stone;
  $("gold").innerText=d.resources.gold;
- $("pos").innerText=`${d.pos.x}:${d.pos.y}`;
- if(Date.now()<d.shield) $("shield").innerText="🛡️ Ochrona aktywna";
+ if(eventActive)$("event").innerText="🎉 EVENT: +100% produkcji";
 
- onValue(ref(db,"players"),s=>{
-  $("targets").innerHTML="";
-  $("ranking").innerHTML="";
-  const arr=[];
-  s.forEach(p=>{
-   if(p.key!==u.uid){
-    let o=document.createElement("option");
-    o.value=p.key;o.text=p.val().name;
-    $("targets").appendChild(o);
-   }
-   arr.push({n:p.val().name,p:armyPower(p.val().army)});
+ /* CHAT */
+ onValue(ref(db,"chat"),s=>{
+  $("chat").innerHTML="";
+  s.forEach(m=>{
+   let div=document.createElement("div");
+   div.className="msg";
+   div.innerText=`${m.val().name}: ${m.val().text}`;
+   $("chat").appendChild(div);
   });
-  arr.sort((a,b)=>b.p-a.p).slice(0,10)
-   .forEach(x=>{
-    let li=document.createElement("li");
-    li.innerText=`${x.n} (${Math.floor(x.p)})`;
-    $("ranking").appendChild(li);
-   });
  });
+
+ /* KLAN LISTA */
+ onValue(ref(db,"clans"),s=>{
+  $("clanList").innerHTML="";
+  s.forEach(c=>{
+   let o=document.createElement("option");
+   o.value=c.key;o.text=c.key;
+   $("clanList").appendChild(o);
+  });
+ });
+
+ if(d.clan)$("clanInfo").innerText="Klan: "+d.clan;
 });
 </script>
 </body>
 </html>
+
+
 
 
 

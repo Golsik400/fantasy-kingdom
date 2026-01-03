@@ -12,39 +12,32 @@
 <h2 id="playerName"></h2>
 
 <h3>📦 Surowce</h3>
-🌲 Drewno: <span id="wood">0</span><br>
-🪨 Kamień: <span id="stone">0</span><br>
-💎 Złoto: <span id="gold">0</span>
+🌲 <span id="wood">0</span>
+🪨 <span id="stone">0</span>
+💎 <span id="gold">0</span>
 
 <hr>
 
-<h3>⚔️ Armia</h3>
-Asasyni: <span id="a_assassin">0</span><br>
-Tanki: <span id="a_tank">0</span><br>
-Łucznicy: <span id="a_archer">0</span><br>
-Kawaleria: <span id="a_cavalry">0</span><br>
-Latające: <span id="a_flying">0</span>
+<h3>⚔️ Twoja armia</h3>
+A: <span id="a_assassin">0</span>
+T: <span id="a_tank">0</span>
+Ł: <span id="a_archer">0</span>
+K: <span id="a_cavalry">0</span>
+L: <span id="a_flying">0</span>
 
 <hr>
 
-<h3>🗺️ PvE – Potwory</h3>
+<h3>🌍 PvP – Inni gracze</h3>
+<select id="target"></select>
+<button onclick="attackPlayer()">Atakuj</button>
 
-<select id="monster">
-  <option value="1">Goblin (lvl 1)</option>
-  <option value="2">Ork (lvl 2)</option>
-  <option value="3">Troll (lvl 3)</option>
-  <option value="4">Smok (lvl 4)</option>
-</select>
-
-<button onclick="attack()">Atakuj</button>
 <div id="battleLog"></div>
-
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, get, set, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, get, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
@@ -61,7 +54,7 @@ const $ = id => document.getElementById(id);
 
 $("loginBtn").onclick = () => signInWithPopup(auth, provider);
 
-/* 🧮 SIŁA JEDNOSTEK */
+/* 🧮 SIŁA */
 const power = {
   assassin: 2,
   tank: 5,
@@ -70,54 +63,61 @@ const power = {
   flying: 8
 };
 
-/* 👹 POTWORY */
-const monsters = {
-  1: { name: "Goblin", power: 10, loot: { wood: 50, stone: 20 } },
-  2: { name: "Ork", power: 30, loot: { wood: 100, stone: 50 } },
-  3: { name: "Troll", power: 70, loot: { wood: 200, stone: 150 } },
-  4: { name: "Smok", power: 150, loot: { wood: 500, stone: 300, gold: 1 } }
-};
+const armyPower = a =>
+  a.assassin*2 + a.tank*5 + a.archer*3 + a.cavalry*4 + a.flying*8;
 
-/* ⚔️ WALKA */
-window.attack = async () => {
-  const user = auth.currentUser;
-  const refP = ref(db, "players/" + user.uid);
-  const d = (await get(refP)).val();
+/* ⚔️ ATAK */
+window.attackPlayer = async () => {
+  const attacker = auth.currentUser;
+  const targetId = $("target").value;
+  if (!targetId || attacker.uid === targetId) return;
 
-  const m = monsters[$("monster").value];
+  const refA = ref(db, "players/" + attacker.uid);
+  const refD = ref(db, "players/" + targetId);
 
-  const armyPower =
-    d.army.assassin * power.assassin +
-    d.army.tank * power.tank +
-    d.army.archer * power.archer +
-    d.army.cavalry * power.cavalry +
-    d.army.flying * power.flying;
+  const A = (await get(refA)).val();
+  const D = (await get(refD)).val();
 
-  if (armyPower <= 0) {
-    $("battleLog").innerText = "Nie masz armii!";
+  const pA = armyPower(A.army);
+  const pD = armyPower(D.army);
+
+  if (pA <= 0 || pD <= 0) {
+    $("battleLog").innerText = "Jedna z armii jest pusta.";
     return;
   }
 
-  if (armyPower >= m.power) {
-    await update(refP, {
-      "resources/wood": d.resources.wood + (m.loot.wood || 0),
-      "resources/stone": d.resources.stone + (m.loot.stone || 0),
-      "resources/gold": d.resources.gold + (m.loot.gold || 0)
+  if (pA >= pD) {
+    // WYGRANA ATAKUJĄCEGO
+    const stolenWood = Math.floor(D.resources.wood * 0.2);
+    const stolenStone = Math.floor(D.resources.stone * 0.2);
+
+    await update(refA, {
+      "resources/wood": A.resources.wood + stolenWood,
+      "resources/stone": A.resources.stone + stolenStone
     });
 
-    $("battleLog").innerText =
-      "Zwycięstwo nad " + m.name + "! Zdobyto łupy.";
+    await update(refD, {
+      "resources/wood": D.resources.wood - stolenWood,
+      "resources/stone": D.resources.stone - stolenStone,
+      "army/assassin": Math.floor(D.army.assassin * 0.7),
+      "army/tank": Math.floor(D.army.tank * 0.7),
+      "army/archer": Math.floor(D.army.archer * 0.7),
+      "army/cavalry": Math.floor(D.army.cavalry * 0.7),
+      "army/flying": Math.floor(D.army.flying * 0.7)
+    });
+
+    $("battleLog").innerText = "Zwycięstwo! Zrabowano surowce.";
   } else {
-    await update(refP, {
-      "army/assassin": Math.floor(d.army.assassin * 0.7),
-      "army/tank": Math.floor(d.army.tank * 0.7),
-      "army/archer": Math.floor(d.army.archer * 0.7),
-      "army/cavalry": Math.floor(d.army.cavalry * 0.7),
-      "army/flying": Math.floor(d.army.flying * 0.7)
+    // PORAŻKA ATAKUJĄCEGO
+    await update(refA, {
+      "army/assassin": Math.floor(A.army.assassin * 0.7),
+      "army/tank": Math.floor(A.army.tank * 0.7),
+      "army/archer": Math.floor(A.army.archer * 0.7),
+      "army/cavalry": Math.floor(A.army.cavalry * 0.7),
+      "army/flying": Math.floor(A.army.flying * 0.7)
     });
 
-    $("battleLog").innerText =
-      "Porażka! Armia poniosła straty.";
+    $("battleLog").innerText = "Porażka! Straciłeś wojsko.";
   }
 
   location.reload();
@@ -133,14 +133,8 @@ onAuthStateChanged(auth, async (user) => {
   if (!snap.exists()) {
     await set(refP, {
       name: user.displayName,
-      resources: { wood: 200, stone: 100, gold: 5 },
-      army: {
-        assassin: 10,
-        tank: 5,
-        archer: 5,
-        cavalry: 3,
-        flying: 0
-      }
+      resources: { wood: 300, stone: 200, gold: 5 },
+      army: { assassin: 10, tank: 5, archer: 5, cavalry: 3, flying: 0 }
     });
   }
 
@@ -148,7 +142,6 @@ onAuthStateChanged(auth, async (user) => {
 
   $("game").style.display = "block";
   $("playerName").innerText = "Witaj, " + d.name;
-
   $("wood").innerText = d.resources.wood;
   $("stone").innerText = d.resources.stone;
   $("gold").innerText = d.resources.gold;
@@ -158,11 +151,25 @@ onAuthStateChanged(auth, async (user) => {
   $("a_archer").innerText = d.army.archer;
   $("a_cavalry").innerText = d.army.cavalry;
   $("a_flying").innerText = d.army.flying;
+
+  onValue(ref(db, "players"), snap => {
+    $("target").innerHTML = "";
+    snap.forEach(p => {
+      if (p.key !== user.uid) {
+        const o = document.createElement("option");
+        o.value = p.key;
+        o.text = p.val().name;
+        $("target").appendChild(o);
+      }
+    });
+  });
 });
 </script>
 
 </body>
 </html>
+
+
 
 
 

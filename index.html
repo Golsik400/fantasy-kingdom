@@ -4,13 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Fantasy Kingdom MMO</title>
-
 <style>
 body{font-family:Arial;background:#111;color:#eee}
 .card{border:1px solid #444;padding:10px;margin:10px}
-input,button,select{margin:3px}
-#chat{height:150px;overflow:auto;background:#000;padding:5px}
+#chat,#clanChat{height:120px;overflow:auto;background:#000;padding:5px}
 .msg{font-size:13px}
+button,input,select{margin:3px}
 </style>
 </head>
 <body>
@@ -18,9 +17,7 @@ input,button,select{margin:3px}
 <button id="login">Zaloguj</button>
 
 <div id="game" style="display:none">
-
 <h2 id="name"></h2>
-<div id="event"></div>
 
 <div class="card">
 <h3>📦 Surowce</h3>
@@ -32,25 +29,37 @@ input,button,select{margin:3px}
 <div class="card">
 <h3>💬 Czat globalny</h3>
 <div id="chat"></div>
-<input id="chatInput" placeholder="Napisz..." />
-<button onclick="sendMsg()">Wyślij</button>
+<input id="chatInput"><button onclick="sendGlobal()">Wyślij</button>
 </div>
 
 <div class="card">
 <h3>🏰 Klan</h3>
 <div id="clanInfo">Brak klanu</div>
-<input id="clanName" placeholder="Nazwa klanu">
-<button onclick="createClan()">Utwórz</button>
-<select id="clanList"></select>
-<button onclick="joinClan()">Dołącz</button>
+
+<h4>Czat klanowy</h4>
+<div id="clanChat"></div>
+<input id="clanInput"><button onclick="sendClan()">Wyślij</button>
 </div>
 
+<div class="card">
+<h3>👹 World Boss</h3>
+HP: <span id="bossHp"></span><br>
+<button onclick="attackBoss()">Atakuj Bossa</button>
+<div id="bossLog"></div>
+</div>
+
+<div class="card">
+<h3>💎 Sklep premium PRO</h3>
+<button onclick="buy('wood')">+1000 drewna (1💎)</button>
+<button onclick="buy('army')">+10 wojska (1💎)</button>
+<button onclick="buy('shield')">Reset ochrony (2💎)</button>
+</div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, set, get, push, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, get, push, update, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const app = initializeApp({
  apiKey:"AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
@@ -67,92 +76,92 @@ const $=i=>document.getElementById(i);
 $("login").onclick=()=>signInWithPopup(auth,provider);
 
 /* 💬 CHAT */
-window.sendMsg=async()=>{
- const txt=$("chatInput").value;
- if(!txt)return;
- await push(ref(db,"chat"),{
-  name:auth.currentUser.displayName,
-  text:txt,
-  time:Date.now()
+window.sendGlobal=()=>push(ref(db,"chat"),{
+ name:auth.currentUser.displayName,
+ text:$("chatInput").value,
+ time:Date.now()
+});
+
+/* 🏰 KLAN CHAT */
+window.sendClan=async()=>{
+ const p=(await get(ref(db,"players/"+auth.currentUser.uid))).val();
+ if(!p.clan)return;
+ push(ref(db,"clanChats/"+p.clan),{
+  name:p.name,text:$("clanInput").value,time:Date.now()
  });
- $("chatInput").value="";
 };
 
-/* 🏰 KLAN */
-window.createClan=async()=>{
- const name=$("clanName").value;
- if(!name)return;
- const cRef=ref(db,"clans/"+name);
- const snap=await get(cRef);
- if(snap.exists())return alert("Klan istnieje");
- await set(cRef,{
-  leader:auth.currentUser.uid,
-  members:{[auth.currentUser.uid]:auth.currentUser.displayName}
+/* 👹 WORLD BOSS */
+window.attackBoss=async()=>{
+ const dmg=10;
+ runTransaction(ref(db,"worldBoss/hp"),hp=>{
+  if(hp>0)return hp-dmg;
+  return hp;
  });
- await update(ref(db,"players/"+auth.currentUser.uid),{clan:name});
+ $("bossLog").innerText="Zadałeś "+dmg+" obrażeń!";
 };
 
-window.joinClan=async()=>{
- const name=$("clanList").value;
- const cRef=ref(db,"clans/"+name);
- const c=(await get(cRef)).val();
- if(Object.keys(c.members).length>=100)return alert("Klan pełny");
- await update(cRef.child("members"),{
-  [auth.currentUser.uid]:auth.currentUser.displayName
+/* 💎 SKLEP */
+window.buy=async(type)=>{
+ const r=ref(db,"players/"+auth.currentUser.uid);
+ const p=(await get(r)).val();
+ if(p.resources.gold<1)return alert("Brak 💎");
+ if(type==="wood")await update(r,{
+  "resources/wood":p.resources.wood+1000,
+  "resources/gold":p.resources.gold-1
  });
- await update(ref(db,"players/"+auth.currentUser.uid),{clan:name});
+ if(type==="army")await update(r,{
+  "army/assassin":(p.army?.assassin||0)+10,
+  "resources/gold":p.resources.gold-1
+ });
 };
-
-/* 🎉 EVENT */
-const eventActive=true;
-const eventBonus=2;
 
 /* START */
 onAuthStateChanged(auth,async u=>{
  if(!u)return;
- const pRef=ref(db,"players/"+u.uid);
- if(!(await get(pRef)).exists()){
-  await set(pRef,{
+ const r=ref(db,"players/"+u.uid);
+ if(!(await get(r)).exists()){
+  await set(r,{
    name:u.displayName,
-   resources:{wood:300,stone:200,gold:5},
-   clan:null
+   clan:null,
+   resources:{wood:500,stone:300,gold:5},
+   army:{assassin:10}
   });
  }
-
- const d=(await get(pRef)).val();
  $("game").style.display="block";
+ const d=(await get(r)).val();
  $("name").innerText=d.name;
  $("wood").innerText=d.resources.wood;
  $("stone").innerText=d.resources.stone;
  $("gold").innerText=d.resources.gold;
- if(eventActive)$("event").innerText="🎉 EVENT: +100% produkcji";
+ if(d.clan)$("clanInfo").innerText="Klan: "+d.clan;
 
- /* CHAT */
  onValue(ref(db,"chat"),s=>{
   $("chat").innerHTML="";
   s.forEach(m=>{
-   let div=document.createElement("div");
-   div.className="msg";
-   div.innerText=`${m.val().name}: ${m.val().text}`;
-   $("chat").appendChild(div);
+   $("chat").innerHTML+=`<div class="msg">${m.val().name}: ${m.val().text}</div>`;
   });
  });
 
- /* KLAN LISTA */
- onValue(ref(db,"clans"),s=>{
-  $("clanList").innerHTML="";
-  s.forEach(c=>{
-   let o=document.createElement("option");
-   o.value=c.key;o.text=c.key;
-   $("clanList").appendChild(o);
-  });
+ onValue(ref(db,"worldBoss"),s=>{
+  if(!s.exists())set(ref(db,"worldBoss"),{hp:1000000});
+  $("bossHp").innerText=s.val().hp;
  });
 
- if(d.clan)$("clanInfo").innerText="Klan: "+d.clan;
+ if(d.clan){
+  onValue(ref(db,"clanChats/"+d.clan),s=>{
+   $("clanChat").innerHTML="";
+   s.forEach(m=>{
+    $("clanChat").innerHTML+=`<div class="msg">${m.val().name}: ${m.val().text}</div>`;
+   });
+  });
+ }
 });
 </script>
 </body>
 </html>
+
+
 
 
 

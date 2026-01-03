@@ -2,172 +2,170 @@
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<title>Fantasy Kingdom</title>
+<title>Fantasy Kingdom MMO</title>
+<style>
+body { font-family: Arial; background:#111; color:#eee }
+button { margin:5px }
+.card { border:1px solid #444; padding:10px; margin:10px }
+</style>
 </head>
 <body>
 
-<button id="loginBtn">Zaloguj się</button>
+<button id="login">Zaloguj</button>
 
-<div id="game" style="display:none;">
-<h2 id="playerName"></h2>
+<div id="game" style="display:none">
 
+<h2 id="name"></h2>
+<div id="shield"></div>
+
+<div class="card">
 <h3>📦 Surowce</h3>
-🌲 <span id="wood">0</span>
-🪨 <span id="stone">0</span>
-💎 <span id="gold">0</span>
+🌲 <span id="wood"></span>
+🪨 <span id="stone"></span>
+💎 <span id="gold"></span>
+</div>
 
-<hr>
+<div class="card">
+<h3>⚔️ Armia</h3>
+<div id="army"></div>
+</div>
 
-<h3>⚔️ Twoja armia</h3>
-A: <span id="a_assassin">0</span>
-T: <span id="a_tank">0</span>
-Ł: <span id="a_archer">0</span>
-K: <span id="a_cavalry">0</span>
-L: <span id="a_flying">0</span>
+<div class="card">
+<h3>🗺️ Mapa</h3>
+Pozycja: <span id="pos"></span>
+</div>
 
-<hr>
+<div class="card">
+<h3>⚔️ PvP</h3>
+<select id="targets"></select>
+<button onclick="attack()">Atakuj</button>
+<div id="log"></div>
+</div>
 
-<h3>🌍 PvP – Inni gracze</h3>
-<select id="target"></select>
-<button onclick="attackPlayer()">Atakuj</button>
+<div class="card">
+<h3>🏆 Ranking</h3>
+<ol id="ranking"></ol>
+</div>
 
-<div id="battleLog"></div>
+<div class="card">
+<h3>💎 Sklep premium</h3>
+<button onclick="boost()">Przyspiesz produkcję (1💎)</button>
+</div>
+
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, get, set, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, get, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-const firebaseConfig = {
-  apiKey: "AIzaSyChxX62dEqlQ4ZVexsp7MEtV2ZD7EiGWrs",
-  authDomain: "fantasy-kingdom-70acd.firebaseapp.com",
-  databaseURL: "https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
-  projectId: "fantasy-kingdom-70acd"
-};
+const app = initializeApp({
+ apiKey:"AIzaSy...",
+ authDomain:"fantasy-kingdom-70acd.firebaseapp.com",
+ databaseURL:"https://fantasy-kingdom-70acd-default-rtdb.firebaseio.com",
+ projectId:"fantasy-kingdom-70acd"
+});
 
-const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 const provider = new GoogleAuthProvider();
-const $ = id => document.getElementById(id);
+const $ = i=>document.getElementById(i);
 
-$("loginBtn").onclick = () => signInWithPopup(auth, provider);
+$("login").onclick=()=>signInWithPopup(auth,provider);
 
-/* 🧮 SIŁA */
-const power = {
-  assassin: 2,
-  tank: 5,
-  archer: 3,
-  cavalry: 4,
-  flying: 8
-};
+const unitPower=(tier)=>Math.pow(1.3,tier);
 
-const armyPower = a =>
-  a.assassin*2 + a.tank*5 + a.archer*3 + a.cavalry*4 + a.flying*8;
+function armyPower(a){
+ let p=0;
+ for(let k in a) p+=a[k].count*unitPower(a[k].tier);
+ return p;
+}
 
-/* ⚔️ ATAK */
-window.attackPlayer = async () => {
-  const attacker = auth.currentUser;
-  const targetId = $("target").value;
-  if (!targetId || attacker.uid === targetId) return;
+window.attack=async()=>{
+ const t=$("targets").value;
+ const u=auth.currentUser.uid;
+ if(!t||t===u)return;
 
-  const refA = ref(db, "players/" + attacker.uid);
-  const refD = ref(db, "players/" + targetId);
+ const A=(await get(ref(db,"players/"+u))).val();
+ const D=(await get(ref(db,"players/"+t))).val();
 
-  const A = (await get(refA)).val();
-  const D = (await get(refD)).val();
+ if(Date.now()<D.shield)return alert("Gracz chroniony");
 
-  const pA = armyPower(A.army);
-  const pD = armyPower(D.army);
+ const pA=armyPower(A.army);
+ const pD=armyPower(D.army);
 
-  if (pA <= 0 || pD <= 0) {
-    $("battleLog").innerText = "Jedna z armii jest pusta.";
-    return;
-  }
-
-  if (pA >= pD) {
-    // WYGRANA ATAKUJĄCEGO
-    const stolenWood = Math.floor(D.resources.wood * 0.2);
-    const stolenStone = Math.floor(D.resources.stone * 0.2);
-
-    await update(refA, {
-      "resources/wood": A.resources.wood + stolenWood,
-      "resources/stone": A.resources.stone + stolenStone
-    });
-
-    await update(refD, {
-      "resources/wood": D.resources.wood - stolenWood,
-      "resources/stone": D.resources.stone - stolenStone,
-      "army/assassin": Math.floor(D.army.assassin * 0.7),
-      "army/tank": Math.floor(D.army.tank * 0.7),
-      "army/archer": Math.floor(D.army.archer * 0.7),
-      "army/cavalry": Math.floor(D.army.cavalry * 0.7),
-      "army/flying": Math.floor(D.army.flying * 0.7)
-    });
-
-    $("battleLog").innerText = "Zwycięstwo! Zrabowano surowce.";
-  } else {
-    // PORAŻKA ATAKUJĄCEGO
-    await update(refA, {
-      "army/assassin": Math.floor(A.army.assassin * 0.7),
-      "army/tank": Math.floor(A.army.tank * 0.7),
-      "army/archer": Math.floor(A.army.archer * 0.7),
-      "army/cavalry": Math.floor(A.army.cavalry * 0.7),
-      "army/flying": Math.floor(A.army.flying * 0.7)
-    });
-
-    $("battleLog").innerText = "Porażka! Straciłeś wojsko.";
-  }
-
-  location.reload();
-};
-
-/* 👤 START */
-onAuthStateChanged(auth, async (user) => {
-  if (!user) return;
-
-  const refP = ref(db, "players/" + user.uid);
-  let snap = await get(refP);
-
-  if (!snap.exists()) {
-    await set(refP, {
-      name: user.displayName,
-      resources: { wood: 300, stone: 200, gold: 5 },
-      army: { assassin: 10, tank: 5, archer: 5, cavalry: 3, flying: 0 }
-    });
-  }
-
-  const d = (await get(refP)).val();
-
-  $("game").style.display = "block";
-  $("playerName").innerText = "Witaj, " + d.name;
-  $("wood").innerText = d.resources.wood;
-  $("stone").innerText = d.resources.stone;
-  $("gold").innerText = d.resources.gold;
-
-  $("a_assassin").innerText = d.army.assassin;
-  $("a_tank").innerText = d.army.tank;
-  $("a_archer").innerText = d.army.archer;
-  $("a_cavalry").innerText = d.army.cavalry;
-  $("a_flying").innerText = d.army.flying;
-
-  onValue(ref(db, "players"), snap => {
-    $("target").innerHTML = "";
-    snap.forEach(p => {
-      if (p.key !== user.uid) {
-        const o = document.createElement("option");
-        o.value = p.key;
-        o.text = p.val().name;
-        $("target").appendChild(o);
-      }
-    });
+ if(pA>pD){
+  await update(ref(db,"players/"+u+"/resources"),{
+   wood:A.resources.wood+50,
+   stone:A.resources.stone+50
   });
+  $("log").innerText="Zwycięstwo!";
+ }else{
+  $("log").innerText="Porażka!";
+ }
+};
+
+window.boost=async()=>{
+ const u=auth.currentUser.uid;
+ const r=ref(db,"players/"+u);
+ const d=(await get(r)).val();
+ if(d.resources.gold<1)return;
+ await update(r,{
+  "resources/gold":d.resources.gold-1,
+  boost:Date.now()+600000
+ });
+};
+
+onAuthStateChanged(auth,async u=>{
+ if(!u)return;
+ const r=ref(db,"players/"+u.uid);
+ if(!(await get(r)).exists()){
+  await set(r,{
+   name:u.displayName,
+   created:Date.now(),
+   shield:Date.now()+86400000,
+   pos:{x:Math.floor(Math.random()*100),y:Math.floor(Math.random()*100)},
+   resources:{wood:300,stone:200,gold:5},
+   army:{
+    assassin:{count:10,tier:1},
+    tank:{count:5,tier:1}
+   }
+  });
+ }
+ const d=(await get(r)).val();
+ $("game").style.display="block";
+ $("name").innerText=d.name;
+ $("wood").innerText=d.resources.wood;
+ $("stone").innerText=d.resources.stone;
+ $("gold").innerText=d.resources.gold;
+ $("pos").innerText=`${d.pos.x}:${d.pos.y}`;
+ if(Date.now()<d.shield) $("shield").innerText="🛡️ Ochrona aktywna";
+
+ onValue(ref(db,"players"),s=>{
+  $("targets").innerHTML="";
+  $("ranking").innerHTML="";
+  const arr=[];
+  s.forEach(p=>{
+   if(p.key!==u.uid){
+    let o=document.createElement("option");
+    o.value=p.key;o.text=p.val().name;
+    $("targets").appendChild(o);
+   }
+   arr.push({n:p.val().name,p:armyPower(p.val().army)});
+  });
+  arr.sort((a,b)=>b.p-a.p).slice(0,10)
+   .forEach(x=>{
+    let li=document.createElement("li");
+    li.innerText=`${x.n} (${Math.floor(x.p)})`;
+    $("ranking").appendChild(li);
+   });
+ });
 });
 </script>
-
 </body>
 </html>
+
+
 
 
 

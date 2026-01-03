@@ -18,35 +18,26 @@
 
 <hr>
 
-<h3>🏰 Koszary</h3>
-Poziom: <span id="barracksLevel">1</span><br>
-<button onclick="upgradeBarracks()">Ulepsz koszary</button>
-
-<hr>
-
-<h3>🪖 Rekrutacja</h3>
-
-<select id="unitType">
-  <option value="assassin">Asasyn</option>
-  <option value="tank">Tank</option>
-  <option value="archer">Łucznik</option>
-  <option value="cavalry">Kawaleria</option>
-  <option value="flying">Latające</option>
-</select>
-
-<input type="number" id="amount" value="1" min="1">
-<button onclick="recruit()">Rekrutuj</button>
-
-<div id="recruitTimer"></div>
-
-<hr>
-
-<h3>⚔️ Twoja armia</h3>
+<h3>⚔️ Armia</h3>
 Asasyni: <span id="a_assassin">0</span><br>
 Tanki: <span id="a_tank">0</span><br>
 Łucznicy: <span id="a_archer">0</span><br>
 Kawaleria: <span id="a_cavalry">0</span><br>
 Latające: <span id="a_flying">0</span>
+
+<hr>
+
+<h3>🗺️ PvE – Potwory</h3>
+
+<select id="monster">
+  <option value="1">Goblin (lvl 1)</option>
+  <option value="2">Ork (lvl 2)</option>
+  <option value="3">Troll (lvl 3)</option>
+  <option value="4">Smok (lvl 4)</option>
+</select>
+
+<button onclick="attack()">Atakuj</button>
+<div id="battleLog"></div>
 
 </div>
 
@@ -70,96 +61,64 @@ const $ = id => document.getElementById(id);
 
 $("loginBtn").onclick = () => signInWithPopup(auth, provider);
 
-/* 🧠 TIER LOGIKA */
-const tierUnlocked = (barracks, unit) => {
-  if (unit === "flying") return barracks >= 5;
-  return barracks >= 1;
+/* 🧮 SIŁA JEDNOSTEK */
+const power = {
+  assassin: 2,
+  tank: 5,
+  archer: 3,
+  cavalry: 4,
+  flying: 8
 };
 
-/* 💰 KOSZTY */
-const unitCost = {
-  assassin: { wood: 10, stone: 5 },
-  tank: { wood: 20, stone: 20 },
-  archer: { wood: 15, stone: 10 },
-  cavalry: { wood: 30, stone: 20 },
-  flying: { wood: 50, stone: 50 }
+/* 👹 POTWORY */
+const monsters = {
+  1: { name: "Goblin", power: 10, loot: { wood: 50, stone: 20 } },
+  2: { name: "Ork", power: 30, loot: { wood: 100, stone: 50 } },
+  3: { name: "Troll", power: 70, loot: { wood: 200, stone: 150 } },
+  4: { name: "Smok", power: 150, loot: { wood: 500, stone: 300, gold: 1 } }
 };
 
-/* ⏱ CZAS */
-const unitTime = unit => 5000;
-
-/* 🪖 REKRUTACJA */
-window.recruit = async () => {
+/* ⚔️ WALKA */
+window.attack = async () => {
   const user = auth.currentUser;
   const refP = ref(db, "players/" + user.uid);
   const d = (await get(refP)).val();
 
-  if (d.recruiting) {
-    alert("Rekrutacja w toku");
+  const m = monsters[$("monster").value];
+
+  const armyPower =
+    d.army.assassin * power.assassin +
+    d.army.tank * power.tank +
+    d.army.archer * power.archer +
+    d.army.cavalry * power.cavalry +
+    d.army.flying * power.flying;
+
+  if (armyPower <= 0) {
+    $("battleLog").innerText = "Nie masz armii!";
     return;
   }
 
-  const unit = $("unitType").value;
-  const amount = parseInt($("amount").value);
-
-  if (!tierUnlocked(d.buildings.barracks.level, unit)) {
-    alert("Ten tier jest zablokowany");
-    return;
-  }
-
-  const cost = unitCost[unit];
-  if (d.resources.wood < cost.wood * amount ||
-      d.resources.stone < cost.stone * amount) {
-    alert("Za mało surowców");
-    return;
-  }
-
-  await update(refP, {
-    "resources/wood": d.resources.wood - cost.wood * amount,
-    "resources/stone": d.resources.stone - cost.stone * amount,
-    recruiting: {
-      unit,
-      amount,
-      end: Date.now() + unitTime(unit) * amount
-    }
-  });
-
-  location.reload();
-};
-
-/* ⏳ SPRAWDZANIE REKRUTACJI */
-async function checkRecruit(user) {
-  const refP = ref(db, "players/" + user.uid);
-  const d = (await get(refP)).val();
-  if (!d.recruiting) return;
-
-  if (Date.now() >= d.recruiting.end) {
-    const u = d.recruiting.unit;
+  if (armyPower >= m.power) {
     await update(refP, {
-      [`army/${u}`]: d.army[u] + d.recruiting.amount,
-      recruiting: null
+      "resources/wood": d.resources.wood + (m.loot.wood || 0),
+      "resources/stone": d.resources.stone + (m.loot.stone || 0),
+      "resources/gold": d.resources.gold + (m.loot.gold || 0)
     });
+
+    $("battleLog").innerText =
+      "Zwycięstwo nad " + m.name + "! Zdobyto łupy.";
+  } else {
+    await update(refP, {
+      "army/assassin": Math.floor(d.army.assassin * 0.7),
+      "army/tank": Math.floor(d.army.tank * 0.7),
+      "army/archer": Math.floor(d.army.archer * 0.7),
+      "army/cavalry": Math.floor(d.army.cavalry * 0.7),
+      "army/flying": Math.floor(d.army.flying * 0.7)
+    });
+
+    $("battleLog").innerText =
+      "Porażka! Armia poniosła straty.";
   }
-}
-
-/* 🏰 ULEPSZ KOSZARY */
-window.upgradeBarracks = async () => {
-  const user = auth.currentUser;
-  const refP = ref(db, "players/" + user.uid);
-  const d = (await get(refP)).val();
-
-  const lvl = d.buildings.barracks.level;
-  const cost = lvl * 100;
-
-  if (d.resources.wood < cost) {
-    alert("Za mało drewna");
-    return;
-  }
-
-  await update(refP, {
-    "resources/wood": d.resources.wood - cost,
-    "buildings/barracks/level": lvl + 1
-  });
 
   location.reload();
 };
@@ -174,20 +133,17 @@ onAuthStateChanged(auth, async (user) => {
   if (!snap.exists()) {
     await set(refP, {
       name: user.displayName,
-      resources: { wood: 500, stone: 300, gold: 5 },
-      buildings: { barracks: { level: 1 } },
+      resources: { wood: 200, stone: 100, gold: 5 },
       army: {
-        assassin: 0,
-        tank: 0,
-        archer: 0,
-        cavalry: 0,
+        assassin: 10,
+        tank: 5,
+        archer: 5,
+        cavalry: 3,
         flying: 0
-      },
-      recruiting: null
+      }
     });
   }
 
-  await checkRecruit(user);
   const d = (await get(refP)).val();
 
   $("game").style.display = "block";
@@ -197,25 +153,18 @@ onAuthStateChanged(auth, async (user) => {
   $("stone").innerText = d.resources.stone;
   $("gold").innerText = d.resources.gold;
 
-  $("barracksLevel").innerText = d.buildings.barracks.level;
-
   $("a_assassin").innerText = d.army.assassin;
   $("a_tank").innerText = d.army.tank;
   $("a_archer").innerText = d.army.archer;
   $("a_cavalry").innerText = d.army.cavalry;
   $("a_flying").innerText = d.army.flying;
-
-  if (d.recruiting) {
-    setInterval(() => {
-      const left = Math.max(0, Math.floor((d.recruiting.end - Date.now()) / 1000));
-      $("recruitTimer").innerText = "Rekrutacja: " + left + "s";
-    }, 1000);
-  }
 });
 </script>
 
 </body>
 </html>
+
+
 
 
 

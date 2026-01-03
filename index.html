@@ -9,32 +9,45 @@
 <button id="loginBtn">Zaloguj się</button>
 
 <div id="game" style="display:none;">
-  <h2 id="playerName"></h2>
+<h2 id="playerName"></h2>
 
-  <h3>📦 Surowce</h3>
-  🌲 Drewno: <span id="wood">0</span> / <span id="woodCap">0</span><br>
-  🪨 Kamień: <span id="stone">0</span> / <span id="stoneCap">0</span><br>
-  💎 Złoto: <span id="gold">0</span>
+<h3>📦 Surowce</h3>
+🌲 Drewno: <span id="wood">0</span><br>
+🪨 Kamień: <span id="stone">0</span><br>
+💎 Złoto: <span id="gold">0</span>
 
-  <h3>🏗️ Budynki produkcyjne</h3>
+<hr>
 
-  <b>Tartak</b><br>
-  Poziom: <span id="sawmillLevel">1</span><br>
-  Produkcja: +<span id="sawmillProd">1</span>/min<br>
-  <button onclick="upgrade('sawmill')">Ulepsz (🌲)</button>
+<h3>🏰 Koszary</h3>
+Poziom: <span id="barracksLevel">1</span><br>
+<button onclick="upgradeBarracks()">Ulepsz koszary</button>
 
-  <br><br>
+<hr>
 
-  <b>Kamieniołom</b><br>
-  Poziom: <span id="quarryLevel">1</span><br>
-  Produkcja: +<span id="quarryProd">1</span>/min<br>
-  <button onclick="upgrade('quarry')">Ulepsz (🪨)</button>
+<h3>🪖 Rekrutacja</h3>
 
-  <h3>📦 Magazyn</h3>
-  Poziom: <span id="storageLevel">1</span><br>
-  Pojemność: <span id="storageCap">500</span><br>
-  Koszt ulepszenia: <span id="storageCost">100</span> 🌲 + <span id="storageCostStone">100</span> 🪨<br>
-  <button onclick="upgrade('storage')">Ulepsz magazyn</button>
+<select id="unitType">
+  <option value="assassin">Asasyn</option>
+  <option value="tank">Tank</option>
+  <option value="archer">Łucznik</option>
+  <option value="cavalry">Kawaleria</option>
+  <option value="flying">Latające</option>
+</select>
+
+<input type="number" id="amount" value="1" min="1">
+<button onclick="recruit()">Rekrutuj</button>
+
+<div id="recruitTimer"></div>
+
+<hr>
+
+<h3>⚔️ Twoja armia</h3>
+Asasyni: <span id="a_assassin">0</span><br>
+Tanki: <span id="a_tank">0</span><br>
+Łucznicy: <span id="a_archer">0</span><br>
+Kawaleria: <span id="a_cavalry">0</span><br>
+Latające: <span id="a_flying">0</span>
+
 </div>
 
 <script type="module">
@@ -53,69 +66,100 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 const provider = new GoogleAuthProvider();
-
 const $ = id => document.getElementById(id);
 
 $("loginBtn").onclick = () => signInWithPopup(auth, provider);
 
-/* 🔢 MAGAZYN */
-const storageCap = lvl => lvl * 500;
+/* 🧠 TIER LOGIKA */
+const tierUnlocked = (barracks, unit) => {
+  if (unit === "flying") return barracks >= 5;
+  return barracks >= 1;
+};
 
-/* ⚙️ PRODUKCJA */
-async function runProduction(user) {
-  const refP = ref(db, "players/" + user.uid);
-  const d = (await get(refP)).val();
+/* 💰 KOSZTY */
+const unitCost = {
+  assassin: { wood: 10, stone: 5 },
+  tank: { wood: 20, stone: 20 },
+  archer: { wood: 15, stone: 10 },
+  cavalry: { wood: 30, stone: 20 },
+  flying: { wood: 50, stone: 50 }
+};
 
-  const minutes = Math.floor((Date.now() - d.lastProduction) / 60000);
-  if (minutes <= 0) return;
+/* ⏱ CZAS */
+const unitTime = unit => 5000;
 
-  const cap = storageCap(d.buildings.storage.level);
-
-  const woodGain = d.buildings.sawmill.level * minutes;
-  const stoneGain = d.buildings.quarry.level * minutes;
-
-  await update(refP, {
-    lastProduction: d.lastProduction + minutes * 60000,
-    "resources/wood": Math.min(cap, d.resources.wood + woodGain),
-    "resources/stone": Math.min(cap, d.resources.stone + stoneGain)
-  });
-}
-
-/* 🏗️ ULEPSZANIE */
-window.upgrade = async (type) => {
+/* 🪖 REKRUTACJA */
+window.recruit = async () => {
   const user = auth.currentUser;
   const refP = ref(db, "players/" + user.uid);
   const d = (await get(refP)).val();
 
-  if (type === "storage") {
-    const lvl = d.buildings.storage.level;
-    const cost = lvl * 100;
+  if (d.recruiting) {
+    alert("Rekrutacja w toku");
+    return;
+  }
 
-    if (d.resources.wood < cost || d.resources.stone < cost) {
-      alert("Za mało surowców");
-      return;
+  const unit = $("unitType").value;
+  const amount = parseInt($("amount").value);
+
+  if (!tierUnlocked(d.buildings.barracks.level, unit)) {
+    alert("Ten tier jest zablokowany");
+    return;
+  }
+
+  const cost = unitCost[unit];
+  if (d.resources.wood < cost.wood * amount ||
+      d.resources.stone < cost.stone * amount) {
+    alert("Za mało surowców");
+    return;
+  }
+
+  await update(refP, {
+    "resources/wood": d.resources.wood - cost.wood * amount,
+    "resources/stone": d.resources.stone - cost.stone * amount,
+    recruiting: {
+      unit,
+      amount,
+      end: Date.now() + unitTime(unit) * amount
     }
+  });
 
+  location.reload();
+};
+
+/* ⏳ SPRAWDZANIE REKRUTACJI */
+async function checkRecruit(user) {
+  const refP = ref(db, "players/" + user.uid);
+  const d = (await get(refP)).val();
+  if (!d.recruiting) return;
+
+  if (Date.now() >= d.recruiting.end) {
+    const u = d.recruiting.unit;
     await update(refP, {
-      "resources/wood": d.resources.wood - cost,
-      "resources/stone": d.resources.stone - cost,
-      "buildings/storage/level": lvl + 1
-    });
-  } else {
-    const lvl = d.buildings[type].level;
-    const res = type === "sawmill" ? "wood" : "stone";
-    const cost = lvl * 50;
-
-    if (d.resources[res] < cost) {
-      alert("Za mało surowców");
-      return;
-    }
-
-    await update(refP, {
-      [`resources/${res}`]: d.resources[res] - cost,
-      [`buildings/${type}/level`]: lvl + 1
+      [`army/${u}`]: d.army[u] + d.recruiting.amount,
+      recruiting: null
     });
   }
+}
+
+/* 🏰 ULEPSZ KOSZARY */
+window.upgradeBarracks = async () => {
+  const user = auth.currentUser;
+  const refP = ref(db, "players/" + user.uid);
+  const d = (await get(refP)).val();
+
+  const lvl = d.buildings.barracks.level;
+  const cost = lvl * 100;
+
+  if (d.resources.wood < cost) {
+    alert("Za mało drewna");
+    return;
+  }
+
+  await update(refP, {
+    "resources/wood": d.resources.wood - cost,
+    "buildings/barracks/level": lvl + 1
+  });
 
   location.reload();
 };
@@ -130,17 +174,20 @@ onAuthStateChanged(auth, async (user) => {
   if (!snap.exists()) {
     await set(refP, {
       name: user.displayName,
-      lastProduction: Date.now(),
-      resources: { wood: 100, stone: 100, gold: 5 },
-      buildings: {
-        sawmill: { level: 1 },
-        quarry: { level: 1 },
-        storage: { level: 1 }
-      }
+      resources: { wood: 500, stone: 300, gold: 5 },
+      buildings: { barracks: { level: 1 } },
+      army: {
+        assassin: 0,
+        tank: 0,
+        archer: 0,
+        cavalry: 0,
+        flying: 0
+      },
+      recruiting: null
     });
   }
 
-  await runProduction(user);
+  await checkRecruit(user);
   const d = (await get(refP)).val();
 
   $("game").style.display = "block";
@@ -150,24 +197,27 @@ onAuthStateChanged(auth, async (user) => {
   $("stone").innerText = d.resources.stone;
   $("gold").innerText = d.resources.gold;
 
-  $("woodCap").innerText = storageCap(d.buildings.storage.level);
-  $("stoneCap").innerText = storageCap(d.buildings.storage.level);
+  $("barracksLevel").innerText = d.buildings.barracks.level;
 
-  $("sawmillLevel").innerText = d.buildings.sawmill.level;
-  $("quarryLevel").innerText = d.buildings.quarry.level;
-  $("storageLevel").innerText = d.buildings.storage.level;
+  $("a_assassin").innerText = d.army.assassin;
+  $("a_tank").innerText = d.army.tank;
+  $("a_archer").innerText = d.army.archer;
+  $("a_cavalry").innerText = d.army.cavalry;
+  $("a_flying").innerText = d.army.flying;
 
-  $("sawmillProd").innerText = d.buildings.sawmill.level;
-  $("quarryProd").innerText = d.buildings.quarry.level;
-
-  $("storageCap").innerText = storageCap(d.buildings.storage.level);
-  $("storageCost").innerText = d.buildings.storage.level * 100;
-  $("storageCostStone").innerText = d.buildings.storage.level * 100;
+  if (d.recruiting) {
+    setInterval(() => {
+      const left = Math.max(0, Math.floor((d.recruiting.end - Date.now()) / 1000));
+      $("recruitTimer").innerText = "Rekrutacja: " + left + "s";
+    }, 1000);
+  }
 });
 </script>
 
 </body>
 </html>
+
+
 
 
 
